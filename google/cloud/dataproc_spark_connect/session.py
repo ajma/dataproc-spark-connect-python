@@ -489,6 +489,7 @@ class DataprocSparkSession(SparkSession):
             self, session_name: str, timeout: int = 300
         ) -> Session:
             start_time = time.time()
+            interval = 5
             while time.time() - start_time < timeout:
                 try:
                     session = self.session_controller_client.get_session(
@@ -496,12 +497,14 @@ class DataprocSparkSession(SparkSession):
                     )
                     if "Spark Connect Server" in session.runtime_info.endpoints:
                         return session
-                    time.sleep(5)
+                    time.sleep(interval)
+                    interval = min(interval * 2, 30)
                 except Exception as e:
                     logger.warning(
                         f"Error while polling for Spark Connect endpoint: {e}"
                     )
-                    time.sleep(5)
+                    time.sleep(interval)
+                    interval = min(interval * 2, 30)
             raise RuntimeError(
                 f"Spark Connect endpoint not available for session {session_name} after {timeout} seconds."
             )
@@ -894,6 +897,7 @@ class DataprocSparkSession(SparkSession):
         def _wait_for_termination(self, session_name: str, timeout: int = 180):
             """Wait for a session to finish terminating."""
             start_time = time.time()
+            interval = 2
 
             while time.time() - start_time < timeout:
                 try:
@@ -914,7 +918,8 @@ class DataprocSparkSession(SparkSession):
                         )
                         return
 
-                    time.sleep(2)
+                    time.sleep(interval)
+                    interval = min(interval * 2, 15)
                 except NotFound:
                     # Session was deleted
                     return
@@ -1333,6 +1338,7 @@ def terminate_s8s_session(
         get_session_request = GetSessionRequest()
         get_session_request.name = session_name
         state = Session.State.ACTIVE
+        interval = 1
         while (
             state != Session.State.TERMINATING
             and state != Session.State.TERMINATED
@@ -1340,7 +1346,8 @@ def terminate_s8s_session(
         ):
             session = session_client.get_session(get_session_request)
             state = session.state
-            time.sleep(1)
+            time.sleep(interval)
+            interval = min(interval * 2, 10)
     except NotFound:
         logger.debug(
             f"{active_s8s_session_id} Dataproc Session already deleted"
