@@ -194,6 +194,9 @@ class DataprocSessionProxy(object):
         self._started = False
         self._killed = False
         self._conn_number = 0
+        self._conn_threads = []
+        self._conn_threads_lock = threading.Lock()
+        self._server_socket = None
 
     @property
     def port(self):
@@ -216,22 +219,41 @@ class DataprocSessionProxy(object):
 
     def _run(self, s):
         with socket.create_server(("127.0.0.1", self._port)) as frontend_socket:
+            self._server_socket = frontend_socket
             if self._port == 0:
                 self._port = frontend_socket.getsockname()[1]
             s.release()
             while not self._killed:
-                conn, addr = frontend_socket.accept()
+                try:
+                    conn, addr = frontend_socket.accept()
+                except OSError:
+                    break
                 logger.debug(f"Accepted a connection from {addr}...")
                 self._conn_number += 1
-                threading.Thread(
+                t = threading.Thread(
                     target=forward_connection,
                     args=[self._conn_number, conn, addr, self._target_host],
                     daemon=True,
-                ).start()
+                )
+                t.start()
+                with self._conn_threads_lock:
+                    self._conn_threads = [
+                        ct for ct in self._conn_threads if ct.is_alive()
+                    ]
+                    self._conn_threads.append(t)
 
     def stop(self):
-        """Stop the proxy."""
+        """Stop the proxy and wait for active connections to close."""
         self._killed = True
+        if self._server_socket:
+            try:
+                self._server_socket.close()
+            except OSError:
+                pass
+        with self._conn_threads_lock:
+            for t in self._conn_threads:
+                t.join(timeout=5)
+            self._conn_threads.clear()
 
 
 @contextlib.contextmanager
