@@ -18,6 +18,7 @@ import contextlib
 import logging
 import socket
 import threading
+import time
 
 import websockets.sync.client as websocketclient
 
@@ -113,7 +114,7 @@ def forward_bytes(name, from_sock, to_sock):
                 except TimeoutError:
                     # On timeouts during a send, we retry just the send
                     # to make sure we don't lose any bytes.
-                    pass
+                    time.sleep(0.1 * attempt)
             if bs:
                 raise Exception(f"Failed to forward bytes for {name}")
         except TimeoutError:
